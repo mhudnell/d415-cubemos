@@ -1,0 +1,5 @@
+cubemos-core==2.2.1
+cubemos-skel==2.3.1
+numpy==1.18.5
+opencv-python==4.2.0.34
+pyrealsense2==2.35.0.1791
