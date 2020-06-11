@@ -2,6 +2,7 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 import os
+import math
 from cubemos.core.nativewrapper import CM_TargetComputeDevice
 from cubemos.core.nativewrapper import initialise_logging, CM_LogLevel
 from cubemos.skeleton_tracking.nativewrapper import Api, SkeletonKeypoints
@@ -30,7 +31,7 @@ keypoint_ids = [
 
 def get_valid_limbs(keypoint_ids, skeleton, confidence_threshold):
     limbs = [
-        (tuple(map(int, skeleton.joints[i])), tuple(map(int, skeleton.joints[v])))
+        (tuple(map(int, skeleton.joints[i])), tuple(map(int, skeleton.joints[v])), i, v)
         for (i, v) in keypoint_ids
         if skeleton.confidences[i] >= confidence_threshold
         and skeleton.confidences[v] >= confidence_threshold
@@ -42,15 +43,66 @@ def get_valid_limbs(keypoint_ids, skeleton, confidence_threshold):
     ]
     return valid_limbs
 
+def draw_skeleton(img, skeleton, confidence_threshold, color):
+    limbs = get_valid_limbs(keypoint_ids, skeleton, confidence_threshold)
+    for limb in limbs:
+        cv2.line(
+            img, limb[0], limb[1], color, thickness=2, lineType=cv2.LINE_AA
+        )
+        # # draw keypoint index
+        # cv2.putText(
+        #     img, str(limb[2]), limb[0], cv2.FONT_HERSHEY_COMPLEX, fontScale=0.7, color=(0, 255, 0), thickness=2
+        # )
+        # cv2.putText(
+        #     img, str(limb[3]), limb[1], cv2.FONT_HERSHEY_COMPLEX, fontScale=0.7, color=(0, 255, 0), thickness=2
+        # )
 
-def render_result(skeletons, img, confidence_threshold):
+
+def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale):
     skeleton_color = (100, 254, 213)
-    for index, skeleton in enumerate(skeletons):
-        limbs = get_valid_limbs(keypoint_ids, skeleton, confidence_threshold)
-        for limb in limbs:
-            cv2.line(
-                img, limb[0], limb[1], skeleton_color, thickness=2, lineType=cv2.LINE_AA
-            )
+    skeles_drawn = np.zeros(len(skeletons))
+    for i, skeleton in enumerate(skeletons):
+        if skeles_drawn[i]: # skip if already drawn
+            continue
+
+        # draw_skeleton(img, skeleton, confidence_threshold, skeleton_color)
+        # determine distance violations - mh
+        chest1_keypoint = skeleton.joints[1]
+        if (chest1_keypoint[0] < 0 or chest1_keypoint[0] >= 640) or (chest1_keypoint[1] < 0 or chest1_keypoint[1] >= 480):
+            break
+        
+        # chest1_distance = depth_frame.get_distance(int(chest1_keypoint[0]), int(chest1_keypoint[1]))
+        depth = depth_image[int(chest1_keypoint[1]), int(chest1_keypoint[0])] * depth_scale
+        depth_intrin = depth_frame.profile.as_video_stream_profile().intrinsics
+        p1 = rs.rs2_deproject_pixel_to_point(depth_intrin, [int(chest1_keypoint[1]), int(chest1_keypoint[0])], depth)
+        # p1 = [chest1_keypoint[0], chest1_keypoint[1], chest1_distance]
+
+        for j in range(i+1, len(skeletons)):
+            skeleton2 = skeletons[j]
+            chest2_keypoint = skeleton2.joints[1]
+            if (chest2_keypoint[0] < 0 or chest2_keypoint[0] >= 640) or (chest2_keypoint[1] < 0 or chest2_keypoint[1] >= 480):
+                break
+            # chest2_distance = depth_frame.get_distance(int(chest2_keypoint[0]), int(chest2_keypoint[1]))
+            depth = depth_image[int(chest2_keypoint[1]), int(chest2_keypoint[0])] * depth_scale
+            depth_intrin = depth_frame.profile.as_video_stream_profile().intrinsics
+            p2 = rs.rs2_deproject_pixel_to_point(depth_intrin, [int(chest2_keypoint[1]), int(chest2_keypoint[0])], depth)
+            # p2 = [chest2_keypoint[0], chest2_keypoint[1], chest1_distance]
+
+            distance = math.sqrt( ((p1[0]-p2[0])**2)+((p1[1]-p2[1])**2) +((p1[2]-p2[2])**2))
+            # print(distance)
+
+            if distance < 1.5:  # draw box red
+                draw_skeleton(img, skeleton, confidence_threshold, (0, 0 , 255))
+                draw_skeleton(img, skeleton2, confidence_threshold, (0, 0 , 255))
+
+
+                skeles_drawn[i] = 1
+                skeles_drawn[j] = 1
+                break
+
+        if not skeles_drawn[i]:
+            draw_skeleton(img, skeleton, confidence_threshold, skeleton_color)
+
 
 if __name__ == '__main__':
 
@@ -102,7 +154,7 @@ if __name__ == '__main__':
 
             # perform inference
             skeletons = api.estimate_keypoints(color_image, 192)
-            render_result(skeletons, color_image, CONFIDENCE_THRESHOLD)
+            render_result(skeletons, color_image, CONFIDENCE_THRESHOLD, depth_frame, depth_scale)
 
             # compute fps
             if frame_count == fps_update_rate:
