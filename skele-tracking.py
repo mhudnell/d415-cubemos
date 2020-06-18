@@ -58,7 +58,7 @@ def draw_skeleton(img, skeleton, confidence_threshold, color):
         # )
 
 
-def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale):
+def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale, animation_percentage):
     skeleton_color = (100, 254, 213)
     skeles_drawn = np.zeros(len(skeletons))
     for i, skeleton in enumerate(skeletons):
@@ -137,6 +137,10 @@ if __name__ == '__main__':
     fps = FPS(deque_size=fps_deque_size, update_rate=fps_update_rate)
     curr_fps = 0
 
+    # animation state variables
+    animation_count = 0
+    animation_length = 90
+
     try:
         while True:
 
@@ -154,7 +158,7 @@ if __name__ == '__main__':
 
             # perform inference
             skeletons = api.estimate_keypoints(color_image, 192)
-            render_result(skeletons, color_image, CONFIDENCE_THRESHOLD, depth_frame, depth_scale)
+            render_result(skeletons, color_image, CONFIDENCE_THRESHOLD, depth_frame, depth_scale, animation_count / animation_length)
 
             # compute fps
             if frame_count == fps_update_rate:
@@ -176,5 +180,10 @@ if __name__ == '__main__':
             if k != -1:  # exit if key pressed   ESC (k=27)
                 cv2.destroyAllWindows()
                 break
+
+            # increment animation
+            animation_count += 1
+            if animation_count == animation_length:
+                animation_count = 0
     finally:
         pipeline.stop()
