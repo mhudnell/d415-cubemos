@@ -58,6 +58,36 @@ def draw_skeleton(img, skeleton, confidence_threshold, color):
         # )
 
 
+def draw_beacon(img, pt, animation_percentage, violation=False):
+    # determine alpha
+    animation_alpha_start = 0
+    animation_alpha_end = 255
+    violation_blinks_per_animation = 3
+
+    if violation:
+        if int(animation_percentage * violation_blinks_per_animation * 2) % 2 == 0:
+            alpha = 0
+        else:
+            alpha = 1.0
+    else:
+        if animation_percentage < 0.5:  # increment in first half of animation
+            alpha = (animation_alpha_start + (animation_alpha_end - animation_alpha_start)*animation_percentage*2) / 255
+        else:  # decrement in second half of animation
+            alpha = (animation_alpha_end - (animation_alpha_end - animation_alpha_start)*(animation_percentage-.5)*2) / 255
+
+    # set color
+    if violation:
+        bgra = (0, 0 , 255, alpha)
+    else:
+        bgra = (0, 255, 0, alpha)
+
+    # draw circle in buffer
+    overlay = np.copy(img)
+    cv2.circle(overlay, (int(pt[0]), int(pt[1])), 12, bgra, thickness=cv2.FILLED)
+
+    # blend
+    cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
+
 def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale, animation_percentage):
     skeleton_color = (100, 254, 213)
     skeles_drawn = np.zeros(len(skeletons))
@@ -89,19 +119,23 @@ def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale
             # p2 = [chest2_keypoint[0], chest2_keypoint[1], chest1_distance]
 
             distance = math.sqrt( ((p1[0]-p2[0])**2)+((p1[1]-p2[1])**2) +((p1[2]-p2[2])**2))
-            # print(distance)
 
-            if distance < 1.5:  # draw box red
-                draw_skeleton(img, skeleton, confidence_threshold, (0, 0 , 255))
-                draw_skeleton(img, skeleton2, confidence_threshold, (0, 0 , 255))
+            if distance < 1.5:  # draw skele red
+                # draw_skeleton(img, skeleton, confidence_threshold, (0, 0 , 255))
+                # draw_skeleton(img, skeleton2, confidence_threshold, (0, 0 , 255))
 
+                draw_beacon(img, chest1_keypoint, animation_percentage, violation=True)
+                draw_beacon(img, chest2_keypoint, animation_percentage, violation=True)
 
                 skeles_drawn[i] = 1
                 skeles_drawn[j] = 1
                 break
 
-        if not skeles_drawn[i]:
-            draw_skeleton(img, skeleton, confidence_threshold, skeleton_color)
+        if not skeles_drawn[i]:  # draw skele green
+            # draw_skeleton(img, skeleton, confidence_threshold, skeleton_color)
+
+            draw_beacon(img, chest1_keypoint, animation_percentage, violation=False)
+
 
 
 if __name__ == '__main__':
