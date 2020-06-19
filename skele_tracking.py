@@ -8,6 +8,7 @@ from cubemos.core.nativewrapper import initialise_logging, CM_LogLevel
 from cubemos.skeleton_tracking.nativewrapper import Api, SkeletonKeypoints
 from cubemos_helpers import check_license_and_variables_exist, default_license_dir
 from fps import FPS
+from beacons import draw_beacon
 
 keypoint_ids = [
     (1, 2),
@@ -57,47 +58,28 @@ def draw_skeleton(img, skeleton, confidence_threshold, color):
         #     img, str(limb[3]), limb[1], cv2.FONT_HERSHEY_COMPLEX, fontScale=0.7, color=(0, 255, 0), thickness=2
         # )
 
-
-def draw_beacon(img, pt, animation_percentage, violation=False):
-    # determine alpha
-    animation_alpha_start = 0
-    animation_alpha_end = 255
-    violation_blinks_per_animation = 3
-
-    if violation:
-        if int(animation_percentage * violation_blinks_per_animation * 2) % 2 == 0:
-            alpha = 0
-        else:
-            alpha = 1.0
-    else:
-        if animation_percentage < 0.5:  # increment in first half of animation
-            alpha = (animation_alpha_start + (animation_alpha_end - animation_alpha_start)*animation_percentage*2) / 255
-        else:  # decrement in second half of animation
-            alpha = (animation_alpha_end - (animation_alpha_end - animation_alpha_start)*(animation_percentage-.5)*2) / 255
-
-    # set color
-    if violation:
-        bgra = (0, 0 , 255, alpha)
-    else:
-        bgra = (0, 255, 0, alpha)
-
-    # draw circle in buffer
-    overlay = np.copy(img)
-    cv2.circle(overlay, (int(pt[0]), int(pt[1])), 12, bgra, thickness=cv2.FILLED)
-
-    # blend
-    cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
+def get_midpoint(coord1, coord2):
+    """
+    expects Cubemos Coordinate as input
+    returns tuple of 2 ints
+    """
+    return (int((coord1[0] + coord2[0]) // 2), int((coord1[1] + coord2[1]) // 2))
 
 def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale, animation_percentage):
     skeleton_color = (100, 254, 213)
     skeles_drawn = np.zeros(len(skeletons))
     for i, skeleton in enumerate(skeletons):
-        if skeles_drawn[i]: # skip if already drawn
+        if skeles_drawn[i] or skeleton.confidences[1] < confidence_threshold: # skip if already drawn or if chest confidence is too low
             continue
 
         # draw_skeleton(img, skeleton, confidence_threshold, skeleton_color)
         # determine distance violations - mh
         chest1_keypoint = skeleton.joints[1]
+        # print(chest1_keypoint)
+        # print(skeleton.joints[8])
+        # print(get_midpoint(chest1_keypoint, skeleton.joints[8]))
+        pelvis_pt1 = get_midpoint(skeleton.joints[8], skeleton.joints[11])
+        draw_pt1 = get_midpoint(chest1_keypoint, pelvis_pt1)
         if (chest1_keypoint[0] < 0 or chest1_keypoint[0] >= 640) or (chest1_keypoint[1] < 0 or chest1_keypoint[1] >= 480):
             break
         
@@ -109,7 +91,14 @@ def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale
 
         for j in range(i+1, len(skeletons)):
             skeleton2 = skeletons[j]
+
+            # skip if chest confidence is too low
+            if skeleton2.confidences[1] < confidence_threshold:
+                continue
+
             chest2_keypoint = skeleton2.joints[1]
+            pelvis_pt2 = get_midpoint(skeleton2.joints[8], skeleton2.joints[11])
+            draw_pt2 = get_midpoint(chest2_keypoint, pelvis_pt2)
             if (chest2_keypoint[0] < 0 or chest2_keypoint[0] >= 640) or (chest2_keypoint[1] < 0 or chest2_keypoint[1] >= 480):
                 break
             # chest2_distance = depth_frame.get_distance(int(chest2_keypoint[0]), int(chest2_keypoint[1]))
@@ -124,8 +113,9 @@ def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale
                 # draw_skeleton(img, skeleton, confidence_threshold, (0, 0 , 255))
                 # draw_skeleton(img, skeleton2, confidence_threshold, (0, 0 , 255))
 
-                draw_beacon(img, chest1_keypoint, animation_percentage, violation=True)
-                draw_beacon(img, chest2_keypoint, animation_percentage, violation=True)
+
+                draw_beacon(img, draw_pt1, animation_percentage, violation=True)
+                draw_beacon(img, draw_pt2, animation_percentage, violation=True)
 
                 skeles_drawn[i] = 1
                 skeles_drawn[j] = 1
@@ -134,7 +124,7 @@ def render_result(skeletons, img, confidence_threshold, depth_frame, depth_scale
         if not skeles_drawn[i]:  # draw skele green
             # draw_skeleton(img, skeleton, confidence_threshold, skeleton_color)
 
-            draw_beacon(img, chest1_keypoint, animation_percentage, violation=False)
+            draw_beacon(img, draw_pt1, animation_percentage, violation=False)
 
 
 
